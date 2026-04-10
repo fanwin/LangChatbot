@@ -133,8 +133,17 @@ def check_message_flow(state: dict, runtime: Runtime) -> dict[str, Any] | None:
                 )
             )
 
-            if is_multimodal:
-                if use_multimodal_mode:
+            # 检查纯文本中是否包含 PDF URL
+            has_pdf_url = False
+            if isinstance(content, str):
+                from src.core.message_transformer import extract_pdf_urls
+                pdf_urls = extract_pdf_urls(content)
+                has_pdf_url = len(pdf_urls) > 0
+                if has_pdf_url:
+                    print(f"\n🔗 [检测到 PDF URL] {len(pdf_urls)} 个")
+
+            if is_multimodal or has_pdf_url:
+                if use_multimodal_mode and is_multimodal:
                     return _handle_multimodal_mode_on(last_msg, content, state)
                 else:
                     _handle_multimodal_mode_off(state, last_msg)
