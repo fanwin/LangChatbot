@@ -1,0 +1,22 @@
+﻿{
+  "dependencies": ["."],
+  "graphs": {
+    "engineering_agent": {
+      "path": "./src/core/hatch_agent.py:agent"
+    },
+    "testcase_agent": {
+      "path": "./src/agents/testcases/agent.py:agent"
+    },
+    "agent2": {
+      "path": "./examples/hatch_agent.py:agent"
+    },
+    "normal_agent": {
+      "path": "./examples/hatch_agent_normal.py:agent"
+    },
+    "sub_agent": {
+      "path": "./examples/hatch_subagent.py:sub_agent"
+    }
+  },
+  "env": ".env",
+  "image_distro": "wolfi"
+}

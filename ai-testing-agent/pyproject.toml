@@ -1,0 +1,10 @@
+[project]
+name = "ai-testing-agent"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "langchain>=1.2.12",
+    "langchain-deepseek>=1.0.1",
+    "langgraph-cli[inmem]>=0.4.17",
+]
