@@ -42,12 +42,30 @@ _MODEL_DATA_MARKER_END = "\n<!-- __HATCH_AGENT_INTERNAL_END__ -->\n"
 
 
 # ============================================================
-# URL 提取正则表达式
+# URL 和本地路径提取正则表达式
 # ============================================================
 
 # 匹配 http/https 开头的 PDF URL
+# 支持两种形式：
+#   1. 显式 .pdf 后缀: https://example.com/doc.pdf
+#   2. 隐式 PDF 路径（如 arxiv）: https://arxiv.org/pdf/2604.08000
 PDF_URL_PATTERN = re.compile(
-    r'https?://[^\s<>"{}|\\^`\[\]]+\.pdf(?:\?[^\s<>"{}|\\^`\[\]]*)?',
+    r'(?:'
+    r'https?://[^\s<>"{}|\\^`\[\]]+\.pdf(?:\?[^\s<>"{}|\\^`\[\]]*)?|'  # 显式 .pdf 后缀
+    r'https?://arxiv\.org/pdf/[^\s<>"{}|\\^`\[\]]+'                     # arxiv PDF 隐式路径
+    r')',
+    re.IGNORECASE
+)
+
+# 匹配本地文件路径（Windows 和 Linux）
+# Windows: C:\path\to\file.pdf 或 C:/path/to/file.pdf
+# Linux: /path/to/file.pdf 或 ~/path/to/file.pdf
+LOCAL_PDF_PATH_PATTERN = re.compile(
+    r'(?:'
+    r'[a-zA-Z]:[/\\](?:[^<>:"|?*\n\r]+[/\\])*[^<>:"|?*\n\r]+\.pdf|'  # Windows 绝对路径
+    r'~[/\\](?:[^\s<>:"|?*\n\r]+[/\\])*[^\s<>:"|?*\n\r]+\.pdf|'      # Linux ~ 路径
+    r'/(?:[^\s<>:"|?*\n\r]+/)*[^\s<>:"|?*\n\r]+\.pdf'                # Linux 绝对路径
+    r')',
     re.IGNORECASE
 )
 
@@ -131,21 +149,25 @@ def transform_multimodal_message(message: HumanMessage) -> HumanMessage:
 
 def _handle_plain_text_with_urls(message: HumanMessage, content: str) -> HumanMessage:
     """
-    处理纯文本消息，检查是否包含 PDF URL。
+    处理纯文本消息，检查是否包含 PDF URL 或本地 PDF 路径。
 
     Args:
         message: 原始消息
         content: 纯文本内容
 
     Returns:
-        如果包含 PDF URL，返回转换后的消息；否则返回原消息
+        如果包含 PDF URL 或本地路径，返回转换后的消息；否则返回原消息
     """
     pdf_urls = extract_pdf_urls(content)
+    local_pdf_paths = extract_local_pdf_paths(content)
 
-    if not pdf_urls:
+    if not pdf_urls and not local_pdf_paths:
         return message
 
-    print(f"[transformer] 🔗 检测到纯文本中的 PDF URL: {len(pdf_urls)} 个")
+    print(
+        f"[transformer] 🔎 检测到纯文本中的 PDF 引用 | URL: {len(pdf_urls)} 个 | "
+        f"本地路径: {len(local_pdf_paths)} 个"
+    )
 
     # 收集器
     document_contents: list[str] = []
@@ -153,7 +175,12 @@ def _handle_plain_text_with_urls(message: HumanMessage, content: str) -> HumanMe
     attachment_metadata: list[dict] = []
 
     # 处理所有 PDF URL
-    _process_pdf_urls(pdf_urls, content, document_contents, attachment_summary_parts, attachment_metadata)
+    if pdf_urls:
+        _process_pdf_urls(pdf_urls, content, document_contents, attachment_summary_parts, attachment_metadata)
+
+    # 处理所有本地 PDF 路径
+    if local_pdf_paths:
+        _process_local_pdf_paths(local_pdf_paths, content, document_contents, attachment_metadata)
 
     # 如果没有成功解析任何 PDF，返回原消息
     if not document_contents:
@@ -184,10 +211,9 @@ def _handle_plain_text_with_urls(message: HumanMessage, content: str) -> HumanMe
     if attachment_metadata:
         new_msg.additional_kwargs["attachments"] = attachment_metadata
 
-    print(f"[transformer] ✅ 纯文本 URL 转换完成 | 模型上下文: {len(model_context)} 字符")
+    print(f"[transformer] ✅ 纯文本路径/URL 转换完成 | 模型上下文: {len(model_context)} 字符")
 
     return new_msg
-
 
 def extract_pdf_urls(text: str) -> list[str]:
     """
@@ -206,130 +232,31 @@ def extract_pdf_urls(text: str) -> list[str]:
     return list(set(urls))  # 去重
 
 
-def _process_pdf_urls(
-    pdf_urls: list[str],
-    user_text: str,
-    document_contents: list[str],
-    attachment_summary_parts: list[str],
-    attachment_metadata: list[dict],
-) -> None:
+def extract_local_pdf_paths(text: str) -> list[str]:
     """
-    处理提取到的 PDF URL 列表。
-
-    Args:
-        pdf_urls: PDF URL 列表
-        user_text: 用户输入的文本
-        document_contents: 文档内容收集器
-        attachment_summary_parts: 附件摘要收集器
-        attachment_metadata: 附件元数据收集器
-    """
-    for url in pdf_urls:
-        print(f"[transformer] 🌐 解析在线 PDF: {url}")
-
-        try:
-            # 调用在线 PDF 解析
-            doc_content = analyze_pdf_from_url(url, user_text)
-
-            if doc_content:
-                document_contents.append(doc_content)
-
-                # 提取文件名
-                filename = url.split('/')[-1].split('?')[0] or "在线文档.pdf"
-                attachment_summary_parts.append(f"📕 {filename}")
-
-                # 添加元数据
-                attachment_metadata.append({
-                    "type": "file",
-                    "mimeType": "application/pdf",
-                    "filename": filename,
-                    "url": url,
-                })
-
-                print(f"[transformer] ✅ 在线 PDF 解析成功: {filename}")
-            else:
-                print(f"[transformer] ⚠️ 在线 PDF 解析失败: {url}")
-
-        except Exception as e:
-            print(f"[transformer] ❌ 在线 PDF 解析异常: {e}")
-            import traceback
-            traceback.print_exc()
-
-
-def _handle_plain_text_with_urls(message: HumanMessage, content: str) -> HumanMessage:
-    """
-    处理纯文本消息，检查是否包含 PDF URL。
-
-    Args:
-        message: 原始消息
-        content: 纯文本内容
-
-    Returns:
-        如果包含 PDF URL，返回转换后的消息；否则返回原消息
-    """
-    pdf_urls = extract_pdf_urls(content)
-
-    if not pdf_urls:
-        return message
-
-    print(f"[transformer] 🔗 检测到纯文本中的 PDF URL: {len(pdf_urls)} 个")
-
-    # 收集器
-    document_contents: list[str] = []
-    attachment_summary_parts: list[str] = []
-    attachment_metadata: list[dict] = []
-
-    # 处理所有 PDF URL
-    _process_pdf_urls(pdf_urls, content, document_contents, attachment_summary_parts, attachment_metadata)
-
-    # 如果没有成功解析任何 PDF，返回原消息
-    if not document_contents:
-        return message
-
-    # 组装消息
-    model_context = "\n".join(document_contents).strip()
-
-    final_content = content
-    if model_context:
-        final_content += (
-            _MODEL_DATA_MARKER_START
-            + model_context
-            + _MODEL_DATA_MARKER_END
-        )
-
-    new_msg = HumanMessage(content=final_content)
-
-    # 保留原始元数据
-    if hasattr(message, "id") and message.id:
-        new_msg.id = message.id
-    if hasattr(message, "name") and message.name:
-        new_msg.name = message.name
-    if hasattr(message, "response_metadata") and message.response_metadata:
-        new_msg.response_metadata = message.response_metadata
-
-    # 附件元信息
-    if attachment_metadata:
-        new_msg.additional_kwargs["attachments"] = attachment_metadata
-
-    print(f"[transformer] ✅ 纯文本 URL 转换完成 | 模型上下文: {len(model_context)} 字符")
-
-    return new_msg
-
-
-def extract_pdf_urls(text: str) -> list[str]:
-    """
-    从文本中提取所有 PDF URL。
+    从文本中提取本地 PDF 路径（支持 Windows 和 Linux）。
 
     Args:
         text: 待检测的文本
 
     Returns:
-        PDF URL 列表
+        本地 PDF 路径列表
     """
     if not text:
         return []
 
-    urls = PDF_URL_PATTERN.findall(text)
-    return list(set(urls))  # 去重
+    matches = LOCAL_PDF_PATH_PATTERN.findall(text)
+    normalized_paths: list[str] = []
+    seen: set[str] = set()
+
+    for path in matches:
+        # 清理路径两端的引号、标点等
+        cleaned = path.strip().strip('"\'""''.,;:()[]{}')
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            normalized_paths.append(cleaned)
+
+    return normalized_paths
 
 
 def _process_pdf_urls(
@@ -340,7 +267,7 @@ def _process_pdf_urls(
     attachment_metadata: list[dict],
 ) -> None:
     """
-    处理提取到的 PDF URL 列表。
+    处理提取到的 PDF URL 列表（含基于 URL 的缓存查询/写入）。
 
     Args:
         pdf_urls: PDF URL 列表
@@ -352,6 +279,26 @@ def _process_pdf_urls(
     for url in pdf_urls:
         print(f"[transformer] 🌐 解析在线 PDF: {url}")
 
+        # 基于 URL 的缓存键
+        cache_key = f"url:{url}"
+
+        # 查询缓存
+        cached_doc = get_pdf_cached(cache_key)
+        if cached_doc is not None:
+            print(f"[transformer] 🌐 在线 PDF 命中缓存: {url}")
+            filename = url.split('/')[-1].split('?')[0] or "在线文档.pdf"
+            if not filename.lower().endswith(".pdf"):
+                filename += ".pdf"
+            document_contents.append(cached_doc)
+            attachment_summary_parts.append(f"📕 {filename}")
+            attachment_metadata.append({
+                "type": "file",
+                "mimeType": "application/pdf",
+                "filename": filename,
+                "url": url,
+            })
+            continue
+
         try:
             # 调用在线 PDF 解析
             doc_content = analyze_pdf_from_url(url, user_text)
@@ -359,8 +306,13 @@ def _process_pdf_urls(
             if doc_content:
                 document_contents.append(doc_content)
 
+                # 写入缓存
+                put_pdf_cache(cache_key, doc_content)
+
                 # 提取文件名
                 filename = url.split('/')[-1].split('?')[0] or "在线文档.pdf"
+                if not filename.lower().endswith(".pdf"):
+                    filename += ".pdf"
                 attachment_summary_parts.append(f"📕 {filename}")
 
                 # 添加元数据
@@ -371,7 +323,7 @@ def _process_pdf_urls(
                     "url": url,
                 })
 
-                print(f"[transformer] ✅ 在线 PDF 解析成功: {filename}")
+                print(f"[transformer] ✅ 在线 PDF 解析成功并缓存: {filename}")
             else:
                 print(f"[transformer] ⚠️ 在线 PDF 解析失败: {url}")
 
@@ -379,6 +331,7 @@ def _process_pdf_urls(
             print(f"[transformer] ❌ 在线 PDF 解析异常: {e}")
             import traceback
             traceback.print_exc()
+
 
 
 # ============================================================
@@ -612,3 +565,64 @@ def _assemble_message(
         new_msg.additional_kwargs["attachments"] = attachment_metadata
 
     return new_msg
+
+def _process_local_pdf_paths(
+    pdf_paths: list[str],
+    user_text: str,
+    document_contents: list[str],
+    attachment_metadata: list[dict],
+) -> None:
+    """处理本地 PDF 路径列表（含基于路径的缓存查询/写入）。"""
+    import os
+
+    for raw_path in pdf_paths:
+        local_path = os.path.expanduser(raw_path.strip().strip("\"'"))
+        print(f"[transformer] 📂 尝试解析本地 PDF: {local_path}")
+
+        if not (os.path.isfile(local_path) and local_path.lower().endswith(".pdf")):
+            print(f"[transformer] ⚠️ 本地 PDF 不存在或不可访问: {local_path}")
+            continue
+
+        # 基于文件路径 + 文件修改时间生成缓存键，同一文件内容变化时自动失效
+        try:
+            mtime = os.path.getmtime(local_path)
+            cache_key = f"local:{local_path}:mtime={mtime:.0f}"
+        except OSError:
+            cache_key = f"local:{local_path}"
+
+        # 查询缓存
+        cached_doc = get_pdf_cached(cache_key) if cache_key else None
+        if cached_doc is not None:
+            print(f"[transformer] 📂 本地 PDF 命中缓存: {local_path}")
+            document_contents.append(cached_doc)
+            attachment_metadata.append({
+                "type": "file",
+                "mimeType": "application/pdf",
+                "filename": os.path.basename(local_path) or "本地文档.pdf",
+                "localPath": local_path,
+            })
+            continue
+
+        # 未命中，执行解析
+        try:
+            doc_content = analyze_pdf(local_path, user_text)
+            if not doc_content:
+                print(f"[transformer] ⚠️ 本地 PDF 解析失败: {local_path}")
+                continue
+
+            # 写入缓存
+            if cache_key:
+                put_pdf_cache(cache_key, doc_content)
+                print(f"[transformer] 📂 本地 PDF 已缓存: {local_path}")
+
+            document_contents.append(doc_content)
+            attachment_metadata.append({
+                "type": "file",
+                "mimeType": "application/pdf",
+                "filename": os.path.basename(local_path) or "本地文档.pdf",
+                "localPath": local_path,
+            })
+            print(f"[transformer] ✅ 本地 PDF 解析成功: {local_path}")
+        except Exception as e:
+            print(f"[transformer] ❌ 本地 PDF 解析异常: {e}")
+            

@@ -612,7 +612,7 @@ def _call_doubao_multimodal(message: HumanMessage) -> Optional[str]:
     from langchain_openai import ChatOpenAI
     model = ChatOpenAI(
         api_key=api_key,
-        model=os.getenv("DOUBAO_MODEL_NAME", "doubao-seed-2-0-pro-260215"),
+        model=os.getenv("DOUBAO_MODEL_NAME", "doubao-seed-2-0-lite-260215"),
         base_url=os.getenv("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
         max_tokens=4096,
     )

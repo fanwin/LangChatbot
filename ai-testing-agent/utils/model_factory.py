@@ -35,6 +35,8 @@ class GetModelByVendor:
             return ChatDeepSeek(
                 api_key=os.getenv("DEEPSEEK_API_KEY"),
                 model=os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat"),
+                timeout=120,          # 请求超时（秒），大文档解析后文本较长需更长时间
+                max_retries=2,        # 失败自动重试 2 次
             )
 
         elif self.vendor == "doubao":

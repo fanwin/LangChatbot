@@ -45,7 +45,7 @@ def _call_doubao_multimodal(message: HumanMessage) -> Any | None:
     from langchain_openai import ChatOpenAI
     model = ChatOpenAI(
         api_key=api_key,
-        model=os.getenv("DOUBAO_MODEL_NAME", "doubao-seed-2-0-pro-260215"),
+        model=os.getenv("DOUBAO_MODEL_NAME", "doubao-seed-2-0-lite-260215"),
         base_url=os.getenv("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
         max_tokens=4096,
     )
@@ -133,16 +133,20 @@ def check_message_flow(state: dict, runtime: Runtime) -> dict[str, Any] | None:
                 )
             )
 
-            # 检查纯文本中是否包含 PDF URL
-            has_pdf_url = False
+            # 检查纯文本中是否包含 PDF URL 或本地 PDF 路径
+            has_pdf_ref = False
             if isinstance(content, str):
-                from src.core.message_transformer import extract_pdf_urls
+                from src.core.message_transformer import extract_pdf_urls, extract_local_pdf_paths
                 pdf_urls = extract_pdf_urls(content)
-                has_pdf_url = len(pdf_urls) > 0
-                if has_pdf_url:
-                    print(f"\n🔗 [检测到 PDF URL] {len(pdf_urls)} 个")
+                local_pdf_paths = extract_local_pdf_paths(content)
+                has_pdf_ref = len(pdf_urls) > 0 or len(local_pdf_paths) > 0
+                if has_pdf_ref:
+                    print(
+                        f"\n🔎 [检测到 PDF 引用] URL: {len(pdf_urls)} 个 | "
+                        f"本地路径: {len(local_pdf_paths)} 个"
+                    )
 
-            if is_multimodal or has_pdf_url:
+            if is_multimodal or has_pdf_ref:
                 if use_multimodal_mode and is_multimodal:
                     return _handle_multimodal_mode_on(last_msg, content, state)
                 else:
