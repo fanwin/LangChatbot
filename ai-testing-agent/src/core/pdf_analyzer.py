@@ -50,6 +50,9 @@ def analyze_pdf(pdf_path: str, user_text: str = "") -> Optional[str]:
     """
     解析本地 PDF 文档，提取完整文本和图片内容。
 
+    缓存机制：基于文件元数据（路径 + 修改时间 + 文件大小）的 LRU 缓存。
+    当同一文件被重复解析时直接返回缓存结果，避免重复调用 PyMuPDF 和 Vision 模型。
+
     Args:
         pdf_path: 本地 PDF 文件绝对路径
         user_text: 用户针对此文档的问题（会追加到输出末尾）
@@ -58,7 +61,28 @@ def analyze_pdf(pdf_path: str, user_text: str = "") -> Optional[str]:
         PDF 文档的完整文字提取结果；失败时返回降级响应
     """
     print(f"[pdf_analyzer] 📕 开始解析本地文件: {pdf_path}")
-    return _analyze_pdf_internal(pdf_path, user_text, source_type="local")
+
+    # 基于文件元数据的缓存查询（安全网：防止绕过 transformer 层缓存的调用）
+    from src.core.cache import get_pdf_cached, put_pdf_cache, compute_file_hash
+
+    file_cache_key = compute_file_hash(pdf_path)
+    if file_cache_key:
+        cached_result = get_pdf_cached(file_cache_key)
+        if cached_result is not None:
+            print(f"[pdf_analyzer] ✅ 缓存命中（文件元数据哈希={file_cache_key[:12]}...）")
+            if user_text.strip():
+                cached_result += f"\n{'=' * 40}\n💬 **用户针对此文档的问题**：{user_text}"
+            return cached_result
+
+    # 未命中缓存，执行完整解析
+    result = _analyze_pdf_internal(pdf_path, user_text, source_type="local")
+
+    # 写入缓存（仅缓存成功的结果）
+    if result and file_cache_key and not result.startswith("📎 **文件附件"):
+        put_pdf_cache(file_cache_key, result)
+        print(f"[pdf_analyzer] 💾 已缓存结果（文件哈希={file_cache_key[:12]}...）")
+
+    return result
 
 
 def analyze_pdf_from_url(pdf_url: str, user_text: str = "") -> Optional[str]:

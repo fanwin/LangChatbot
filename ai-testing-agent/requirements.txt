@@ -1,0 +1,26 @@
+# AI Testing Agent 依赖
+#
+# 安装方式:
+#   pip install -r requirements.txt
+#
+# 核心依赖
+langchain>=0.3
+langchain-openai>=0.2
+langchain-core>=0.3
+langchain-community>=0.3
+langchain-pymupdf4llm>=0.1
+
+pymupdf>=1.24
+
+# PDF/文档解析
+pdfplumber>=0.11
+
+# 缓存: 磁盘持久化（附件解析结果缓存，进程重启不丢失）
+# 不装此包会自动回退到内存模式（功能正常但无持久化）
+diskcache>=5.6
+
+# HTTP 请求（在线PDF下载）
+requests>=2.31
+
+# 环境变量管理
+python-dotenv>=1.0

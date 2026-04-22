@@ -35,6 +35,7 @@ class GetModelByVendor:
             return ChatDeepSeek(
                 api_key=os.getenv("DEEPSEEK_API_KEY"),
                 model=os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat"),
+                timeout=120,
             )
 
         elif self.vendor == "doubao":
@@ -44,6 +45,7 @@ class GetModelByVendor:
                 api_key=os.getenv("DOUBAO_API_KEY"),
                 model=os.getenv("DOUBAO_MODEL_NAME", "doubao-seed-2-0-lite-260215"),
                 base_url=os.getenv("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+                timeout=120,
             )
 
         elif self.vendor == "qwen":
